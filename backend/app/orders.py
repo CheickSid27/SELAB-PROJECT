@@ -139,6 +139,7 @@ def _conclure(conn, oid: int, phone: str, accepte: bool) -> str:
     if reste:
         return f"Merci, votre accord pour la proposition n°{oid} est enregistré. J'attends les autres parties."
     conn.execute("UPDATE orders SET statut='confirmee' WHERE id=?", (oid,))
+    conn.execute("INSERT INTO order_events(order_id, etape, phone) VALUES (?, 'confirmee', ?)", (oid, phone))
     conn.execute("UPDATE offers SET statut='engagee' WHERE id IN (SELECT offer_id FROM order_lines WHERE order_id=?)", (oid,))
     conn.execute("UPDATE demands SET statut='engagee' WHERE id IN (SELECT demand_id FROM order_buyers WHERE order_id=?)", (oid,))
     for p in concernes - {phone}:
@@ -151,3 +152,101 @@ def recuperer_notifications(conn: sqlite3.Connection, phone: str) -> list[str]:
     with transaction(conn):
         conn.executemany("UPDATE outbox SET delivered=1 WHERE id=?", [(r["id"],) for r in rows])
     return [r["body"] for r in rows]
+
+
+ETAPES = ["collecte", "en_route", "livre"]
+LIBELLE_ETAPE = {"collecte": "collectée", "en_route": "en route", "livre": "livrée"}
+
+
+def _parties(conn, oid: int) -> set[str]:
+    return {r[0] for r in conn.execute(
+        "SELECT farmer_phone FROM order_lines WHERE order_id=? UNION SELECT buyer_phone FROM order_buyers WHERE order_id=?",
+        (oid, oid))}
+
+
+def assigner_transporteur(conn: sqlite3.Connection, oid: int, phone: str) -> dict:
+    o = conn.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+    if o is None:
+        raise LookupError("commande inconnue")
+    if o["statut"] != "confirmee" or o["transporteur_phone"]:
+        raise ValueError("la commande doit être confirmée et sans transporteur")
+    t = conn.execute("SELECT role FROM actors WHERE phone=?", (phone,)).fetchone()
+    if t is None or t["role"] != "transporteur":
+        raise ValueError("ce numéro n'est pas un transporteur inscrit")
+    with transaction(conn):
+        conn.execute("UPDATE orders SET transporteur_phone=? WHERE id=?", (phone, oid))
+        conn.execute("INSERT INTO order_events(order_id, etape, phone) VALUES (?, 'assignee', ?)", (oid, phone))
+        nom = LIBELLES.get(o["produit"], o["produit"])
+        _notifier(conn, phone, f"Mission commande n°{oid} : {o['quantite']} {nom} à livrer le {o['date_livraison']} à "
+                               f"{o['localite'].capitalize()}. Écrivez COLLECTÉ, EN ROUTE puis LIVRÉ au fil de la mission.")
+        for p in _parties(conn, oid):
+            _notifier(conn, p, f"Un transporteur est assigné à la commande n°{oid}.")
+    return detail(conn, oid)
+
+
+def enregistrer_etape(conn: sqlite3.Connection, oid: int, etape: str, phone: str) -> str:
+    """Enregistre une étape dans l'ordre collecte -> en_route -> livre, par le transporteur assigné."""
+    o = conn.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+    if o is None or o["transporteur_phone"] != phone:
+        raise ValueError("commande non assignée à ce transporteur")
+    faites = [r[0] for r in conn.execute(
+        "SELECT etape FROM order_events WHERE order_id=? AND etape IN ('collecte','en_route','livre')", (oid,))]
+    attendue = next((e for e in ETAPES if e not in faites), None)
+    if etape != attendue:
+        raise ValueError(f"étape attendue : {attendue}" if attendue else "commande déjà livrée")
+    with transaction(conn):
+        conn.execute("INSERT INTO order_events(order_id, etape, phone) VALUES (?,?,?)", (oid, etape, phone))
+        if etape == "livre":
+            conn.execute("UPDATE orders SET statut='livree' WHERE id=?", (oid,))
+        for p in _parties(conn, oid):
+            _notifier(conn, p, f"Commande n°{oid} : {LIBELLE_ETAPE[etape]}.")
+    return f"Étape « {LIBELLE_ETAPE[etape]} » enregistrée pour la commande n°{oid}."
+
+
+def mission_en_cours(conn: sqlite3.Connection, phone: str) -> int | None:
+    r = conn.execute("SELECT id FROM orders WHERE transporteur_phone=? AND statut='confirmee' ORDER BY id LIMIT 1", (phone,)).fetchone()
+    return r["id"] if r else None
+
+
+def lot_public(conn: sqlite3.Connection, oid: int) -> dict | None:
+    """Fiche de lot publique : aucune coordonnée de contact, provenance déclarative."""
+    o = conn.execute("SELECT * FROM orders WHERE id=? AND statut IN ('confirmee','livree')", (oid,)).fetchone()
+    if o is None:
+        return None
+    sources = conn.execute(
+        "SELECT l.quantite, l.distance_km, f.localite, a.verification FROM order_lines l "
+        "JOIN offers f ON f.id=l.offer_id JOIN actors a ON a.phone=l.farmer_phone WHERE l.order_id=?", (oid,)).fetchall()
+    events = conn.execute("SELECT etape, created_at FROM order_events WHERE order_id=? ORDER BY id", (oid,)).fetchall()
+    return {
+        "code": f"LOT-{oid:04d}", "produit": o["produit"], "quantite": o["quantite"],
+        "livraison": {"localite": o["localite"], "date": o["date_livraison"]}, "statut": o["statut"],
+        "provenance_declaree": [dict(r) for r in sources], "evenements": [dict(r) for r in events],
+        "avertissement": "Traçabilité déclarative issue de la plateforme : ce n'est pas une certification sanitaire.",
+    }
+
+
+def statistiques(conn: sqlite3.Connection) -> dict:
+    n = lambda q: conn.execute(q).fetchone()[0]
+    confirmees = n("SELECT COUNT(*) FROM orders WHERE statut IN ('confirmee','livree')")
+    livrees = n("SELECT COUNT(*) FROM orders WHERE statut='livree'")
+    propositions = n("SELECT COUNT(*) FROM orders")
+    return {
+        "demandes_ouvertes": n("SELECT COUNT(*) FROM demands WHERE statut='ouverte'"),
+        "offres_ouvertes": n("SELECT COUNT(*) FROM offers WHERE statut='ouverte'"),
+        "propositions": propositions,
+        "commandes_confirmees": confirmees,
+        "commandes_livrees": livrees,
+        "commandes_annulees": n("SELECT COUNT(*) FROM orders WHERE statut='annulee'"),
+        "taux_confirmation": round(confirmees / propositions, 2) if propositions else None,
+        "taux_livraison": round(livrees / confirmees, 2) if confirmees else None,
+        "volume_local_engage": n("SELECT COALESCE(SUM(quantite),0) FROM orders WHERE statut IN ('confirmee','livree')"),
+        "volume_local_livre": n("SELECT COALESCE(SUM(quantite),0) FROM orders WHERE statut='livree'"),
+        "prix_rendu_livre_moyen_fcfa": conn.execute(
+            "SELECT ROUND(AVG(prix_rendu_livre_fcfa)) FROM orders WHERE statut IN ('confirmee','livree')").fetchone()[0],
+        "unite": "unités (poulets, œufs…) du scénario simulé",
+        "reference": {
+            "texte": "Couverture nationale des besoins en viandes et abats : 48–49 % sur 2019–2024 (indicateur global, toutes espèces).",
+            "source": "Portail d'information économique de Côte d'Ivoire, rubrique Élevage",
+            "avertissement": "Contexte uniquement : ces chiffres ne mesurent pas un effet de la plateforme.",
+        },
+    }

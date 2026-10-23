@@ -47,3 +47,28 @@ def test_commande_via_api(monkeypatch):
     dire("+1", "oui"); dire("+2", "oui")
     assert c.get(f"/orders/{cmd['id']}").json()["statut"] == "confirmee"
     assert c.get("/orders/999").status_code == 404
+
+
+def test_demo_complete_avec_lot_et_stats(monkeypatch):
+    monkeypatch.setattr(main, "conn", connect(":memory:"))
+    c = TestClient(main.app)
+    seed = c.post("/demo/seed").json()
+    def dire(phone, texte):
+        return c.post("/chat", json={"phone": phone, "text": texte}).json()["reply"]
+    dire("+2250700000001", "80 poulets de chair samedi à Cocody"); dire("+2250700000001", "oui")
+    dire("+2250700000011", "j'ai 100 poulets de chair demain à Dabou 2500f"); dire("+2250700000011", "oui")
+    cmd = c.post("/demo/propose").json()
+    c.post("/demo/auto-accord")
+    dire("+2250700000001", "oui"); dire("+2250700000011", "oui")
+    assert c.get(f"/orders/{cmd['id']}").json()["statut"] == "confirmee"
+    assert c.post(f"/orders/{cmd['id']}/assign", params={"phone": "+2250700000021"}).status_code == 200
+    assert c.post(f"/orders/{cmd['id']}/assign", params={"phone": "+2250700000021"}).status_code == 409
+    for mot in ("collecté", "en route", "livré"):
+        assert "enregistrée" in dire("+2250700000021", mot)
+    code = f"LOT-{cmd['id']:04d}"
+    assert code in c.get(f"/lots/{code}").text
+    assert c.get(f"/lots/{code}/qr.svg").headers["content-type"] == "image/svg+xml"
+    assert c.get("/lots/LOT-9999").status_code == 404 and c.get("/lots/x").status_code == 404
+    s = c.get("/stats").json()
+    assert s["taux_livraison"] == 1.0 and s["volume_local_livre"] > 0
+    assert c.get("/demo").status_code in (200, 404)

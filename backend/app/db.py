@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS orders (
     quantite INTEGER NOT NULL,
     prix_rendu_livre_fcfa REAL,
     statut TEXT NOT NULL DEFAULT 'en_attente'
-        CHECK (statut IN ('en_attente','confirmee','annulee')),
+        CHECK (statut IN ('en_attente','confirmee','annulee','livree')),
+    transporteur_phone TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS order_lines (
@@ -66,6 +67,13 @@ CREATE TABLE IF NOT EXISTS order_buyers (
     buyer_phone TEXT NOT NULL,
     quantite INTEGER NOT NULL,
     accord INTEGER
+);
+CREATE TABLE IF NOT EXISTS order_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    etape TEXT NOT NULL CHECK (etape IN ('confirmee','assignee','collecte','en_route','livre')),
+    phone TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -4,6 +4,7 @@ Principe : l'agent structure et pose des questions ; il n'enregistre une demande
 une offre qu'après un « oui » explicite de la personne.
 """
 import json
+import re
 import sqlite3
 from datetime import date
 
@@ -56,6 +57,12 @@ def traiter_message(conn: sqlite3.Connection, phone: str, texte: str, aujourdhui
         return reponse
 
     role = acteur["role"]
+
+    # 1b. Les transporteurs répondent aux missions, ils ne publient ni demande ni offre
+    if role == "transporteur":
+        reponse = _transporteur(conn, phone, texte, ext)
+        _enregistrer(conn, phone, texte, reponse)
+        return reponse
 
     # 2. Réponse à une demande de confirmation
     if etat.get("attente_confirmation"):
@@ -123,15 +130,17 @@ def _inscription(conn, phone, texte, etat, ext) -> str:
         _sauver(conn, phone, {"inscription": "role"})
         return (
             "Bienvenue sur IVOIRE ÉLEVAGE 360. Vos données (numéro, localité, annonces) servent "
-            "uniquement à vous mettre en relation. Êtes-vous ÉLEVEUR ou ACHETEUR ?"
+            "uniquement à vous mettre en relation. Êtes-vous ÉLEVEUR, ACHETEUR ou TRANSPORTEUR ?"
         )
     if etape == "role":
         if "eleveur" in t:
             role = "eleveur"
         elif "acheteur" in t or "restaurant" in t:
             role = "acheteur"
+        elif "transporteur" in t or "livreur" in t:
+            role = "transporteur"
         else:
-            return "Je n'ai pas compris. Répondez ÉLEVEUR ou ACHETEUR."
+            return "Je n'ai pas compris. Répondez ÉLEVEUR, ACHETEUR ou TRANSPORTEUR."
         _sauver(conn, phone, {"inscription": "consentement", "role": role})
         return "Merci. Acceptez-vous que vos informations soient partagées avec les partenaires concernés ? Répondez OUI ou NON."
     if etape == "consentement":
@@ -180,3 +189,21 @@ def _enregistrer(conn, phone, entrant, sortant) -> None:
     with transaction(conn):
         conn.execute("INSERT INTO messages(phone, direction, body) VALUES (?, 'in', ?)", (phone, entrant))
         conn.execute("INSERT INTO messages(phone, direction, body) VALUES (?, 'out', ?)", (phone, sortant))
+
+
+def _transporteur(conn, phone: str, texte: str, ext: Extraction) -> str:
+    from ..geo import normalise
+
+    t = normalise(texte)
+    etape = ("collecte" if "collect" in t else "en_route" if re.search(r"en route|parti|depart", t)
+             else "livre" if "livr" in t else None)
+    oid = orders.mission_en_cours(conn, phone)
+    if etape is None:
+        return ("Aucune mission en cours." if oid is None else
+                f"Mission n°{oid} en cours. Écrivez COLLECTÉ, EN ROUTE ou LIVRÉ.")
+    if oid is None:
+        return "Vous n'avez pas de mission en cours."
+    try:
+        return orders.enregistrer_etape(conn, oid, etape, phone)
+    except ValueError as e:
+        return f"Impossible : {e}."

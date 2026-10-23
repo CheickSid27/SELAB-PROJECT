@@ -10,7 +10,7 @@ Prototype du hackathon SELAB 2026 : la demande guide la production, via un agent
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn app.main:app --reload   # simulateur de chat sur http://localhost:8000
+uvicorn app.main:app --reload   # démo à trois téléphones : http://localhost:8000/demo
 python -m pytest                # tests
 ```
 

@@ -81,3 +81,54 @@ def test_oui_via_la_conversation_ne_vole_pas_un_brouillon(conn):
     assert "enregistré" in dire(conn, "+1", f"oui {c['id']}")
     assert "confirmée" in dire(conn, "+2", "oui")
     assert orders.detail(conn, c["id"])["statut"] == "confirmee"
+
+
+def confirmer(conn, c):
+    for p in ("b1", "b2", "f1", "f2"):
+        orders.repondre(conn, p, "oui", True)
+
+
+def test_transporteur_etapes_dans_l_ordre(conn):
+    c = jeu(conn)
+    conn.execute("INSERT INTO actors(phone, role, consent) VALUES ('t1','transporteur',1)"); conn.commit()
+    with pytest.raises(ValueError):
+        orders.assigner_transporteur(conn, c["id"], "t1")  # pas encore confirmée
+    confirmer(conn, c)
+    with pytest.raises(ValueError):
+        orders.assigner_transporteur(conn, c["id"], "f1")  # pas un transporteur
+    orders.assigner_transporteur(conn, c["id"], "t1")
+    with pytest.raises(ValueError):
+        orders.enregistrer_etape(conn, c["id"], "livre", "t1")  # saute des étapes
+    with pytest.raises(ValueError):
+        orders.enregistrer_etape(conn, c["id"], "collecte", "f1")  # pas le bon transporteur
+    for e in ("collecte", "en_route", "livre"):
+        orders.enregistrer_etape(conn, c["id"], e, "t1")
+    assert orders.detail(conn, c["id"])["statut"] == "livree"
+    s = orders.statistiques(conn)
+    assert s["taux_livraison"] == 1.0 and s["volume_local_livre"] == 180
+
+
+def test_transporteur_via_conversation(conn):
+    c = jeu(conn)
+    inscrire(conn, "+T", "transporteur")
+    confirmer(conn, c)
+    orders.assigner_transporteur(conn, c["id"], "+T")
+    assert "Impossible" in dire(conn, "+T", "livré")
+    assert "collectée" in dire(conn, "+T", "j'ai collecté")
+    assert "en route" in dire(conn, "+T", "je suis en route")
+    assert "livrée" in dire(conn, "+T", "livré")
+    assert "pas de mission" in dire(conn, "+T", "livré")
+
+
+def test_lot_public_sans_contact(conn):
+    c = jeu(conn)
+    assert orders.lot_public(conn, c["id"]) is None  # pas confirmé
+    confirmer(conn, c)
+    lot = orders.lot_public(conn, c["id"])
+    assert lot["code"] == "LOT-0001" and "pas une certification" in lot["avertissement"]
+    assert "f1" not in str(lot) and "b1" not in str(lot)
+
+
+def test_stats_vides(conn):
+    s = orders.statistiques(conn)
+    assert s["taux_livraison"] is None and s["volume_local_livre"] == 0
