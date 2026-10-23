@@ -34,3 +34,23 @@ def test_date_invalide_ignoree():
 def test_demain_et_milliers():
     e = extraire_regles("1 000 oeufs demain à Daloa", AUJ)
     assert (e.quantite, e.date, e.produit) == (1000, "2026-10-22", "oeufs")
+
+
+def test_plateaux_d_oeufs_ne_sont_pas_la_commune_du_plateau():
+    e = extraire_regles("500 plateaux d'oeufs mardi", AUJ)
+    assert (e.produit, e.quantite, e.localite) == ("oeufs", 500, None)
+    assert extraire_regles("livraison au Plateau", AUJ).localite == "plateau"
+
+
+def test_nombres_en_lettres():
+    assert extraire_regles("cent poulets", AUJ).quantite == 100
+    assert extraire_regles("deux cents poulets", AUJ).quantite == 200
+    assert extraire_regles("trois mille oeufs", AUJ).quantite == 3000
+    assert extraire_regles("quatre-vingts poulets", AUJ).quantite == 80
+    assert extraire_regles("cinquante poulets", AUJ).quantite == 50
+
+
+def test_noms_de_mois():
+    assert extraire_regles("50 poulets le 5 novembre à Man", AUJ).date == "2026-11-05"
+    assert extraire_regles("50 poulets le 2 octobre à Man", AUJ).date == "2027-10-02"
+    assert extraire_regles("50 poulets le 25 octobre à Man", AUJ).date == "2026-10-25"

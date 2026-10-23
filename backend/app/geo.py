@@ -1,5 +1,6 @@
 """Localités connues (coordonnées approximatives) pour le calcul de distance."""
 import math
+import re
 import unicodedata
 
 LOCALITES = {
@@ -29,7 +30,8 @@ def normalise(texte: str) -> str:
 def trouver_localite(texte: str) -> str | None:
     t = normalise(texte)
     for nom in sorted(LOCALITES, key=len, reverse=True):
-        if nom in t:
+        # Bornes de mot : « plateaux » (d'œufs) ne doit pas désigner la commune du Plateau.
+        if re.search(rf"(?<![a-z-]){re.escape(nom)}(?![a-z-])", t):
             return nom
     return None
 

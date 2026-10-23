@@ -75,7 +75,10 @@ def traiter_message(conn: sqlite3.Connection, phone: str, texte: str, aujourdhui
 
     # 3. Collecte des champs
     brouillon = _fusion(etat.get("brouillon", {}), ext)
-    if ext.intention == "statut":
+    if ext.intention == "annuler":
+        _sauver(conn, phone, {})
+        reponse = "D'accord, j'annule. Vous pouvez m'envoyer un nouveau message."
+    elif ext.intention == "statut":
         reponse = _statut(conn, phone, role)
     elif ext.intention in ("confirmer", "annuler") and not brouillon:
         reponse = "Je n'ai rien en attente. Décrivez votre besoin ou votre disponibilité."

@@ -56,3 +56,10 @@ def test_offre_eleveur_declaree(conn):
     o = conn.execute("SELECT * FROM offers").fetchone()
     assert o["quantite"] == 300
     assert conn.execute("SELECT verification FROM actors WHERE phone='+2'").fetchone()[0] == "declare"
+
+
+def test_annuler_en_cours_de_collecte_reinitialise(conn):
+    inscrire(conn, "+1", "acheteur")
+    parler(conn, "+1", "des poulets à Cocody")
+    assert "annule" in parler(conn, "+1", "non").lower()
+    assert "quantité" not in parler(conn, "+1", "bonjour").lower()

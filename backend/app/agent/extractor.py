@@ -13,6 +13,13 @@ from pydantic import BaseModel, Field, ValidationError
 from .. import config
 from ..geo import normalise, trouver_localite
 
+MOIS = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout",
+        "septembre", "octobre", "novembre", "decembre"]
+NOMBRES = {
+    "un": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8, "neuf": 9,
+    "dix": 10, "onze": 11, "douze": 12, "treize": 13, "quatorze": 14, "quinze": 15, "seize": 16,
+    "vingt": 20, "trente": 30, "quarante": 40, "cinquante": 50, "soixante": 60,
+}
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 
 
@@ -49,7 +56,30 @@ def _produit(t: str) -> str | None:
     return None
 
 
+def _valeur(run: list[str]) -> int:
+    total = courant = 0
+    for w in run:
+        if w in ("cent", "cents"):
+            courant = (courant or 1) * 100
+        elif w == "mille":
+            total += (courant or 1) * 1000
+            courant = 0
+        elif w in NOMBRES:
+            courant += NOMBRES[w]
+    return total + courant
+
+
+def _mots_vers_chiffres(t: str) -> str:
+    """« cent », « deux cents », « trois mille » -> chiffres (français courant, jusqu'à 999 999)."""
+    t = re.sub(r"quatre[ -]vingts?", "80", t)
+    t = re.sub(r"soixante[ -]dix", "70", t)
+    mots = r"(?:%s|cents?|mille)" % "|".join(NOMBRES)
+    motif = rf"\b{mots}(?:[ -]+(?:et[ -]+)?{mots})*\b"
+    return re.sub(motif, lambda m: str(_valeur(re.findall(r"[a-z]+", m[0]))), t)
+
+
 def _quantite(t: str) -> int | None:
+    t = _mots_vers_chiffres(t)
     t = re.sub(r"(?<=\d)[ .](?=\d{3}\b)", "", t)  # 1 000 -> 1000
     m = re.search(r"\b(\d{1,6})\s*(?:x\s*)?(?:poulets?|oeufs?|plateaux?|pondeuses?|sujets?|tetes?|unites?)\b", t)
     if m:
@@ -70,6 +100,14 @@ def _date(t: str, aujourdhui: date) -> str | None:
             return date(int(m[1]), int(m[2]), int(m[3])).isoformat()
         except ValueError:
             return None
+    m = re.search(rf"\b(\d{{1,2}})(?:er)?\s+({'|'.join(MOIS)})\b", t)
+    if m:
+        mois = MOIS.index(m[2]) + 1
+        try:
+            d = date(aujourdhui.year, mois, int(m[1]))
+        except ValueError:
+            return None
+        return (d.replace(year=d.year + 1) if d < aujourdhui else d).isoformat()
     m = re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", t)
     if m:
         annee = int(m[3]) if m[3] else aujourdhui.year
