@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import matching
+from . import matching, orders
 from .agent.conversation import traiter_message
 from .db import connect, transaction
 
@@ -53,3 +53,31 @@ def set_verification(phone: str, niveau: str):
     if cur.rowcount == 0:
         raise HTTPException(404, "acteur inconnu")
     return {"phone": phone, "verification": niveau}
+
+
+@app.post("/orders/propose")
+def propose_order(produit: str, localite: str, date_livraison: date):
+    """Crée une commande en attente et notifie éleveurs et acheteurs (file d'attente `outbox`)."""
+    commande = orders.proposer_commande(conn, produit, localite, date_livraison.isoformat())
+    if commande is None:
+        raise HTTPException(404, "aucune offre compatible")
+    return commande
+
+
+@app.get("/orders")
+def list_orders():
+    return [orders.detail(conn, r["id"]) for r in conn.execute("SELECT id FROM orders ORDER BY id")]
+
+
+@app.get("/orders/{order_id}")
+def get_order(order_id: int):
+    commande = orders.detail(conn, order_id)
+    if commande is None:
+        raise HTTPException(404, "commande inconnue")
+    return commande
+
+
+@app.get("/outbox")
+def outbox(phone: str):
+    """Notifications en attente pour ce numéro (le simulateur les interroge régulièrement)."""
+    return {"messages": orders.recuperer_notifications(conn, phone)}

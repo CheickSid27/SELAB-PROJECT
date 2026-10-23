@@ -44,6 +44,14 @@ document.getElementById('f').addEventListener('submit', async e => {
     add('out', (await r.json()).reply);
   } catch (err) { add('out', 'Erreur : ' + err.message); }
 });
+async function poll() {
+  try {
+    const phone = encodeURIComponent(document.getElementById('phone').value);
+    const r = await fetch('/outbox?phone=' + phone);
+    if (r.ok) (await r.json()).messages.forEach(m => add('out', m));
+  } catch (e) {}
+}
+setInterval(poll, 3000);
 </script>
 </body>
 </html>

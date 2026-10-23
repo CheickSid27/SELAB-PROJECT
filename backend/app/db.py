@@ -38,6 +38,42 @@ CREATE TABLE IF NOT EXISTS offers (
     simule INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    produit TEXT NOT NULL,
+    localite TEXT NOT NULL,
+    date_livraison TEXT NOT NULL,
+    quantite INTEGER NOT NULL,
+    prix_rendu_livre_fcfa REAL,
+    statut TEXT NOT NULL DEFAULT 'en_attente'
+        CHECK (statut IN ('en_attente','confirmee','annulee')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS order_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    offer_id INTEGER NOT NULL REFERENCES offers(id),
+    farmer_phone TEXT NOT NULL,
+    quantite INTEGER NOT NULL,
+    prix_fcfa INTEGER,
+    distance_km REAL,
+    accord INTEGER  -- NULL = pas de réponse, 1 = oui, 0 = non
+);
+CREATE TABLE IF NOT EXISTS order_buyers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    demand_id INTEGER NOT NULL REFERENCES demands(id),
+    buyer_phone TEXT NOT NULL,
+    quantite INTEGER NOT NULL,
+    accord INTEGER
+);
+CREATE TABLE IF NOT EXISTS outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone TEXT NOT NULL,
+    body TEXT NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS sessions (
     phone TEXT PRIMARY KEY,
     state_json TEXT NOT NULL

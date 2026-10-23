@@ -7,6 +7,7 @@ import json
 import sqlite3
 from datetime import date
 
+from .. import orders
 from ..db import transaction
 from .extractor import Extraction, extraire
 
@@ -72,6 +73,13 @@ def traiter_message(conn: sqlite3.Connection, phone: str, texte: str, aujourdhui
             reponse = _resume(role, etat["brouillon"]) + " Répondez OUI pour confirmer ou NON pour annuler."
         _enregistrer(conn, phone, texte, reponse)
         return reponse
+
+    # 2b. Réponse à une proposition de commande (si aucun brouillon n'est en cours)
+    if not etat.get("brouillon") and ext.intention in ("confirmer", "annuler"):
+        reponse = orders.repondre(conn, phone, texte, ext.intention == "confirmer")
+        if reponse is not None:
+            _enregistrer(conn, phone, texte, reponse)
+            return reponse
 
     # 3. Collecte des champs
     brouillon = _fusion(etat.get("brouillon", {}), ext)
