@@ -17,6 +17,14 @@ def _notifier(conn, phone: str, texte: str) -> None:
     conn.execute("INSERT INTO outbox(phone, body) VALUES (?, ?)", (phone, texte))
 
 
+def _detail_prix(propositions: list[dict], quantite: int) -> dict | None:
+    if not propositions or any(p["prix_fcfa"] is None for p in propositions):
+        return None
+    produit = round(sum(p["prix_fcfa"] * p["quantite"] for p in propositions) / quantite)
+    transport = round(sum(p["distance_km"] * config.TRANSPORT_FCFA_PAR_KM for p in propositions) / quantite)
+    return {"produit": produit, "transport": transport, "pertes_pct": config.PERTE_ESTIMEE_PCT}
+
+
 def _prix_rendu_livre(propositions: list[dict], quantite: int) -> float | None:
     """Moyenne pondérée des offres, transport estimé par kilomètre, pertes incluses.
     None si un prix manque : on n'affiche jamais un prix inventé."""
@@ -63,7 +71,9 @@ def proposer_commande(conn: sqlite3.Connection, produit: str, localite: str, dat
                 (oid, d["id"], d["buyer_phone"], q),
             )
             conn.execute("UPDATE demands SET statut='en_proposition' WHERE id=?", (d["id"],))
-            ligne_prix = f" Prix rendu livré estimé : {prix:.0f} FCFA/unité (hypothèses de transport et de pertes)." if prix else ""
+            dp = _detail_prix(prop["propositions"], couverte)
+            ligne_prix = (f" Prix rendu livré estimé : {prix:.0f} FCFA/unité (produit {dp['produit']} + transport estimé "
+                          f"{dp['transport']}, pertes {dp['pertes_pct']:g} %)." ) if prix and dp else ""
             _notifier(conn, d["buyer_phone"],
                       f"Proposition n°{oid} : {q} {nom} {quand}.{ligne_prix} Répondez OUI {oid} ou NON {oid}.")
 

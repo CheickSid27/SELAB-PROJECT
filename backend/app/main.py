@@ -1,18 +1,30 @@
 import html
 import io
+import json
+import threading
+import time
+from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from pathlib import Path
 
 import segno
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
-from . import matching, orders
+from . import config, matching, orders, whatsapp
 from .agent.conversation import traiter_message
 from .db import connect, transaction
 
-app = FastAPI(title="IVOIRE ÉLEVAGE 360 — prototype")
+@asynccontextmanager
+async def lifespan(_app):
+    if whatsapp.configure():
+        threading.Thread(target=_boucle_outbox, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="IVOIRE ÉLEVAGE 360 — prototype", lifespan=lifespan)
 conn = connect()
 STATIC = Path(__file__).parent / "static"
 
@@ -129,15 +141,18 @@ def lot_page(code: str):
     e = html.escape
     sources = "".join(
         f"<li>{s['quantite']} unités — élevage près de {e(s['localite'].capitalize())} "
-        f"(statut : <b>{e(s['verification'])}</b>)</li>" for s in lot["provenance_declaree"])
-    events = "".join(f"<li>{e(ev['created_at'])} — {e(ev['etape'])}</li>" for ev in lot["evenements"])
+        f"(statut : <b>{e({'declare': 'déclaré', 'verifie': 'vérifié', 'certifie': 'certifié'}[s['verification']])}</b>)</li>" for s in lot["provenance_declaree"])
+    noms = {"confirmee": "Commande confirmée", "assignee": "Transporteur assigné", "collecte": "Collecté chez l'éleveur",
+            "en_route": "En route", "livre": "Livré"}
+    events = "".join(f"<li>{e(ev['created_at'])} — {e(noms.get(ev['etape'], ev['etape']))}</li>" for ev in lot["evenements"])
+    etats = {"confirmee": "confirmé", "livree": "livré"}
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{e(lot['code'])}</title>
 <style>body{{font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:16px;color:#1d2b24}}
 h1{{color:#1b5e3b}} .note{{background:#fff3cd;padding:10px;border-radius:6px;font-size:14px}}</style></head><body>
 <h1>{e(lot['code'])}</h1>
 <p><b>{lot['quantite']}</b> {e(lot['produit'].replace('_', ' '))} — livraison {e(lot['livraison']['date'])}
-à {e(lot['livraison']['localite'].capitalize())} (état : {e(lot['statut'])})</p>
+à {e(lot['livraison']['localite'].capitalize())} (état : {e(etats.get(lot['statut'], lot['statut']))})</p>
 <h3>Provenance déclarée</h3><ul>{sources}</ul>
 <h3>Historique</h3><ul>{events}</ul>
 <p class="note">{e(lot['avertissement'])} Données de démonstration simulées.</p></body></html>"""
@@ -225,3 +240,39 @@ def demo_page():
 @app.get("/dashboard", include_in_schema=False)
 def dashboard():
     return FileResponse(STATIC / "demo.html")
+
+
+# --- WhatsApp -----------------------------------------------------------------------------------
+
+@app.get("/whatsapp/webhook", include_in_schema=False)
+def whatsapp_verification(request: Request):
+    q = request.query_params
+    if (config.WHATSAPP_VERIFY_TOKEN and q.get("hub.mode") == "subscribe"
+            and q.get("hub.verify_token") == config.WHATSAPP_VERIFY_TOKEN):
+        return PlainTextResponse(q.get("hub.challenge", ""))
+    raise HTTPException(403, "vérification refusée")
+
+
+@app.post("/whatsapp/webhook", include_in_schema=False)
+async def whatsapp_reception(request: Request):
+    corps = await request.body()
+    if not whatsapp.signature_valide(corps, request.headers.get("X-Hub-Signature-256")):
+        raise HTTPException(403, "signature invalide")
+    try:
+        payload = json.loads(corps)
+    except ValueError:
+        raise HTTPException(400, "JSON invalide")
+    await run_in_threadpool(
+        whatsapp.traiter_payload, conn, payload, lambda phone, texte: traiter_message(conn, phone, texte))
+    return {"ok": True}
+
+
+def _boucle_outbox():
+    while True:
+        try:
+            whatsapp.vider_outbox(conn)
+        except Exception:
+            pass
+        time.sleep(2)
+
+

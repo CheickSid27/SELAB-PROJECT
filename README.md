@@ -4,6 +4,9 @@ Prototype du hackathon SELAB 2026 : la demande guide la production, via un agent
 
 - Concept : [docs/IVOIRE_ELEVAGE_360_v2.md](docs/IVOIRE_ELEVAGE_360_v2.md)
 - Roadmap : [docs/ROADMAP.md](docs/ROADMAP.md)
+- Pitch et script de démo : [docs/PITCH.md](docs/PITCH.md)
+- Brancher WhatsApp : [docs/WHATSAPP.md](docs/WHATSAPP.md)
+- Vérification des sources : [docs/VERIFICATION_SOURCES.md](docs/VERIFICATION_SOURCES.md)
 
 ## Lancer le prototype
 
