@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IVOIRE ÉLEVAGE 360 — Démo</title>
+<style>
+  :root { --vert:#1b5e3b; --fond:#f3f5f2; --texte:#1d2b24; --carte:#fff; --bord:#d8ded9; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: var(--fond); color: var(--texte); }
+  header { background: var(--vert); color: #fff; padding: 12px 20px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header p { margin: 2px 0 0; font-size: 12px; opacity: .85; }
+  .barre { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; align-items: center; }
+  .barre button { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--vert); background: #fff; color: var(--vert); cursor: pointer; font-weight: 600; }
+  .barre button.principal { background: var(--vert); color: #fff; }
+  .barre .etape { font-size: 12px; opacity: .7; margin-left: 6px; }
+  .phones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 0 20px; }
+  .phone { background: #ece5dd; border: 1px solid var(--bord); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; height: 380px; }
+  .phone h2 { margin: 0; padding: 8px 12px; background: #075e54; color: #fff; font-size: 14px; }
+  .phone h2 small { display: block; font-weight: 400; opacity: .8; font-size: 11px; }
+  .log { flex: 1; overflow-y: auto; padding: 8px; }
+  .m { max-width: 85%; margin: 4px 0; padding: 6px 10px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; }
+  .in { background: #dcf8c6; margin-left: auto; } .out { background: #fff; }
+  .phone form { display: flex; gap: 6px; padding: 6px; background: #f0f0f0; }
+  .phone input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 16px; }
+  .phone button { padding: 8px 12px; border: 0; border-radius: 16px; background: #075e54; color: #fff; }
+  .tableau { padding: 12px 20px 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .carte { background: var(--carte); border: 1px solid var(--bord); border-radius: 10px; padding: 14px; }
+  .carte h3 { margin: 0 0 10px; font-size: 15px; color: var(--vert); }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .kpi { background: var(--fond); border-radius: 8px; padding: 8px; text-align: center; }
+  .kpi b { display: block; font-size: 22px; } .kpi span { font-size: 11px; opacity: .75; }
+  .ref { font-size: 12px; margin-top: 10px; opacity: .8; }
+  .cmd { border-top: 1px solid var(--bord); padding: 8px 0; font-size: 13px; display: flex; gap: 12px; align-items: center; }
+  .cmd img { width: 80px; height: 80px; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; background: #e1e8e3; }
+  .badge.confirmee, .badge.livree { background: #c8e6c9; } .badge.annulee { background: #ffcdd2; }
+  .simule { font-size: 11px; background: #fff3cd; padding: 2px 8px; border-radius: 4px; }
+  @media (max-width: 900px) { .phones, .tableau { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>IVOIRE ÉLEVAGE 360 — la demande guide la production</h1>
+  <p>Démonstration avec des acteurs et des données <b>simulés</b>. Les prix de transport et de pertes sont des hypothèses.</p>
+</header>
+
+<div class="barre">
+  <button class="principal" onclick="agir('/demo/seed')">1. Préparer la démo</button>
+  <button onclick="agir('/demo/propose')">2. Proposer la commande</button>
+  <button onclick="agir('/demo/auto-accord')">3. Acteurs simulés : OUI</button>
+  <button onclick="assigner()">4. Assigner le transporteur</button>
+  <span class="etape" id="info"></span>
+</div>
+
+<div class="phones" id="phones"></div>
+
+<div class="tableau">
+  <div class="carte"><h3>Tableau de bord <span class="simule">scénario simulé</span></h3>
+    <div class="kpis" id="kpis"></div><div class="ref" id="ref"></div></div>
+  <div class="carte"><h3>Commandes et lots</h3><div id="cmds">Aucune commande.</div></div>
+</div>
+
+<script>
+const PHONES = [
+  { tel: '+2250700000001', titre: 'Acheteur', sous: 'Maquis Chez Awa (démo)', aide: '80 poulets de chair samedi à Cocody' },
+  { tel: '+2250700000011', titre: 'Éleveur', sous: 'Ferme Koffi (démo)', aide: "j'ai 100 poulets de chair demain à Dabou 2500f" },
+  { tel: '+2250700000021', titre: 'Transporteur', sous: 'Transports Diallo (démo)', aide: 'collecté / en route / livré' },
+];
+const conteneur = document.getElementById('phones');
+PHONES.forEach((p, i) => {
+  conteneur.insertAdjacentHTML('beforeend', `
+  <div class="phone"><h2>${p.titre}<small>${p.sous} · ${p.tel}</small></h2>
+    <div class="log" id="log${i}"></div>
+    <form id="f${i}"><input id="t${i}" placeholder="ex. ${p.aide}" autocomplete="off"><button>Envoyer</button></form></div>`);
+  document.getElementById('f' + i).addEventListener('submit', async e => {
+    e.preventDefault();
+    const champ = document.getElementById('t' + i); const text = champ.value.trim(); if (!text) return;
+    champ.value = ''; ajouter(i, 'in', text);
+    try {
+      const r = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: p.tel, text }) });
+      if (!r.ok) throw new Error(r.status);
+      ajouter(i, 'out', (await r.json()).reply);
+    } catch (err) { ajouter(i, 'out', 'Erreur : ' + err.message); }
+    rafraichir();
+  });
+});
+function ajouter(i, cls, texte) {
+  const l = document.getElementById('log' + i);
+  const d = document.createElement('div'); d.className = 'm ' + cls; d.textContent = texte; l.appendChild(d); l.scrollTop = l.scrollHeight;
+}
+async function agir(url) {
+  const info = document.getElementById('info');
+  try {
+    const r = await fetch(url, { method: 'POST' });
+    const j = await r.json();
+    info.textContent = r.ok ? 'OK' : (j.detail || 'Erreur');
+    if (url === '/demo/seed' && r.ok) PHONES.forEach((_, i) => document.getElementById('log' + i).innerHTML = '');
+  } catch (e) { info.textContent = 'Erreur réseau'; }
+  rafraichir();
+}
+async function assigner() {
+  const info = document.getElementById('info');
+  const liste = await (await fetch('/orders')).json();
+  const c = liste.find(o => o.statut === 'confirmee' && !o.transporteur_phone);
+  if (!c) { info.textContent = 'Aucune commande confirmée sans transporteur'; return; }
+  const r = await fetch(`/orders/${c.id}/assign?phone=${encodeURIComponent(PHONES[2].tel)}`, { method: 'POST' });
+  info.textContent = r.ok ? 'Transporteur assigné' : 'Erreur'; rafraichir();
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+async function rafraichir() {
+  try {
+    const s = await (await fetch('/stats')).json();
+    const pct = v => v == null ? '—' : Math.round(v * 100) + ' %';
+    document.getElementById('kpis').innerHTML = [
+      [s.volume_local_engage, 'unités locales engagées'], [s.volume_local_livre, 'unités livrées'],
+      [s.commandes_confirmees, 'commandes confirmées'], [pct(s.taux_confirmation), 'propositions confirmées'],
+      [pct(s.taux_livraison), 'confirmées livrées'], [s.prix_rendu_livre_moyen_fcfa ?? '—', 'FCFA/unité rendu livré (estim.)'],
+    ].map(([v, l]) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
+    document.getElementById('ref').innerHTML = `${esc(s.reference.texte)}<br><i>${esc(s.reference.source)}. ${esc(s.reference.avertissement)}</i>`;
+    const cmds = await (await fetch('/orders')).json();
+    if (cmds.length) document.getElementById('cmds').innerHTML = cmds.map(c => {
+      const lot = ['confirmee', 'livree'].includes(c.statut);
+      const code = 'LOT-' + String(c.id).padStart(4, '0');
+      return `<div class="cmd">${lot ? `<a href="/lots/${code}" target="_blank"><img src="/lots/${code}/qr.svg" alt="QR ${code}"></a>` : ''}
+        <div><b>Commande n°${c.id}</b> <span class="badge ${c.statut}">${c.statut.replace('_', ' ')}</span><br>
+        ${c.quantite} ${esc(c.produit.replace('_', ' '))} · ${esc(c.localite)} · ${esc(c.date_livraison)}<br>
+        ${c.eleveurs.length} éleveur(s), ${c.acheteurs.length} acheteur(s)${lot ? `<br><a href="/lots/${code}" target="_blank">Fiche du lot ${code}</a>` : ''}</div></div>`;
+    }).join('');
+  } catch (e) {}
+}
+async function notifications() {
+  for (let i = 0; i < PHONES.length; i++) {
+    try {
+      const r = await fetch('/outbox?phone=' + encodeURIComponent(PHONES[i].tel));
+      if (r.ok) (await r.json()).messages.forEach(m => ajouter(i, 'out', m));
+    } catch (e) {}
+  }
+  rafraichir();
+}
+setInterval(notifications, 2000); rafraichir();
+</script>
+</body>
+</html>

@@ -1,1 +1,21 @@
 # SELAB-PROJECT
+
+Prototype du hackathon SELAB 2026 : la demande guide la production, via un agent IA sur WhatsApp.
+
+- Concept : [docs/IVOIRE_ELEVAGE_360_v2.md](docs/IVOIRE_ELEVAGE_360_v2.md)
+- Roadmap : [docs/ROADMAP.md](docs/ROADMAP.md)
+- Pitch et script de démo : [docs/PITCH.md](docs/PITCH.md)
+- Brancher WhatsApp : [docs/WHATSAPP.md](docs/WHATSAPP.md)
+- Vérification des sources : [docs/VERIFICATION_SOURCES.md](docs/VERIFICATION_SOURCES.md)
+
+## Lancer le prototype
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload   # démo à trois téléphones : http://localhost:8000/demo
+python -m pytest                # tests
+```
+
+Sans `ANTHROPIC_API_KEY`, l'agent utilise l'extracteur à règles. Avec une clé, le LLM est essayé en premier,
+et son résultat est validé avant usage. Toutes les données de démonstration sont simulées.

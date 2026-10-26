@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulateur WhatsApp — IVOIRE ÉLEVAGE 360</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #ece5dd; }
+  header { background: #1b5e3b; color: #fff; padding: 12px 16px; }
+  header input { margin-left: 8px; padding: 4px 8px; border-radius: 4px; border: 0; }
+  #log { padding: 12px 16px; height: calc(100vh - 130px); overflow-y: auto; }
+  .m { max-width: 80%; margin: 6px 0; padding: 8px 12px; border-radius: 8px; white-space: pre-wrap; }
+  .in { background: #dcf8c6; margin-left: auto; }
+  .out { background: #fff; }
+  form { display: flex; gap: 8px; padding: 8px 16px; }
+  form input { flex: 1; padding: 10px; border-radius: 20px; border: 1px solid #ccc; }
+  form button { padding: 10px 18px; border-radius: 20px; border: 0; background: #1b5e3b; color: #fff; }
+  .note { font-size: 12px; opacity: .85; }
+</style>
+</head>
+<body>
+<header>
+  <strong>Simulateur WhatsApp</strong>
+  <label>Numéro <input id="phone" value="+2250700000001"></label>
+  <div class="note">Données de démonstration : rien n'est réel.</div>
+</header>
+<div id="log"></div>
+<form id="f"><input id="t" placeholder="Écrire un message…" autocomplete="off"><button>Envoyer</button></form>
+<script>
+const log = document.getElementById('log');
+function add(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'm ' + cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight;
+}
+document.getElementById('f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const t = document.getElementById('t');
+  const text = t.value.trim(); if (!text) return;
+  t.value = ''; add('in', text);
+  try {
+    const r = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: document.getElementById('phone').value, text }) });
+    if (!r.ok) throw new Error(r.status);
+    add('out', (await r.json()).reply);
+  } catch (err) { add('out', 'Erreur : ' + err.message); }
+});
+async function poll() {
+  try {
+    const phone = encodeURIComponent(document.getElementById('phone').value);
+    const r = await fetch('/outbox?phone=' + phone);
+    if (r.ok) (await r.json()).messages.forEach(m => add('out', m));
+  } catch (e) {}
+}
+setInterval(poll, 3000);
+</script>
+</body>
+</html>
